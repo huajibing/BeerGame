@@ -97,6 +97,8 @@ def train_agent(
     # Training loop
     for episode in range(1, num_episodes + 1):
         state = env.reset()
+        if hasattr(agent, 'reset_episode_states'): # For D3QN with LSTM
+            agent.reset_episode_states()
         episode_reward = 0
         
         for step in range(max_steps):
@@ -344,8 +346,9 @@ def evaluate_agent(
 def compare_strategies(
     env,
     target_firm_index,
-    state_size, # MODIFIED: Added state_size parameter
-    agent_types=None,  # List of agent types to include in comparison
+    state_size,
+    args, # MODIFIED: Added args to pass command-line arguments
+    agent_types=None,
     other_firm_strategy="random",
     num_episodes=100,
     max_steps=100
@@ -353,7 +356,7 @@ def compare_strategies(
     """Compare different strategies for a specific position in the supply chain"""
     
     if agent_types is None:
-        agent_types = ["dqn", "ppo", "d3qn"]  # Default to both DQN and PPO
+        agent_types = ["dqn", "ppo", "d3qn"]
     
     # Define strategies to compare
     strategies = {
@@ -390,7 +393,19 @@ def compare_strategies(
                 
                 strategies["PPO"] = agent
             elif agent_type.lower() == "d3qn":
-                agent = D3QNAgent(state_size, action_size)
+                # When loading D3QN, ensure architectural params match those used for training
+                # These are now passed via 'args'
+                d3qn_load_kwargs = {
+                    'noisy_std_init': args.d3qn_noisy_std,
+                    'sequence_length': args.d3qn_seq_len,
+                    'lstm_hidden_size': args.d3qn_lstm_hidden,
+                    'num_atoms': args.d3qn_num_atoms,
+                    'v_min': args.d3qn_v_min,
+                    'v_max': args.d3qn_v_max,
+                    # Other necessary D3QNAgent params if they are not architectural (e.g. learning_rate is not needed for eval)
+                    # For evaluation, only architectural parameters are strictly necessary.
+                }
+                agent = D3QNAgent(state_size, action_size, **d3qn_load_kwargs)
                 agent.policy_net.load_state_dict(torch.load(model_path))
                 strategies["D3QN"] = agent
                 
@@ -423,6 +438,8 @@ def compare_strategies(
         
         for episode in range(num_episodes):
             state = env.reset()
+            if hasattr(strategy, 'reset_episode_states') and isinstance(strategy, D3QNAgent):
+                strategy.reset_episode_states()
             episode_reward = 0
             episode_inventory = []
             episode_order = []
@@ -659,8 +676,23 @@ def main():
                       help='D3QN soft update parameter (default: 0.005)')
     parser.add_argument('--d3qn-lr', type=float, default=0.001,
                       help='D3QN learning rate (default: 0.001)')
-    parser.add_argument('--d3qn-prioritized', action='store_true',
-                      help='Enable prioritized experience replay for D3QN')
+    # D3QN specific arguments (including C51, LSTM, Noisy, PER)
+    parser.add_argument('--d3qn_gamma', type=float, default=0.99, help='D3QN discount factor gamma (default: 0.99)')
+    parser.add_argument('--d3qn_buffer_size', type=int, default=10000, help='D3QN replay buffer size (default: 10000)')
+    parser.add_argument('--d3qn_batch_size', type=int, default=64, help='D3QN batch size (default: 64)')
+    parser.add_argument('--d3qn_update_every', type=int, default=4, help='D3QN update frequency (default: 4)')
+    parser.add_argument('--d3qn_prioritized', action='store_true', help='Enable prioritized experience replay for D3QN')
+    parser.add_argument('--d3qn_alpha_per', type=float, default=0.6, help='Alpha for PER in D3QN (default: 0.6)')
+    parser.add_argument('--d3qn_beta_per_start', type=float, default=0.4, help='Beta start for PER in D3QN (default: 0.4)')
+    parser.add_argument('--d3qn_beta_per_end', type=float, default=1.0, help='Beta end for PER in D3QN (default: 1.0)')
+    parser.add_argument('--d3qn_beta_per_frames', type=int, default=100000, help='Beta annealing frames for PER in D3QN (default: 100000)')
+    parser.add_argument('--d3qn_noisy_std', type=float, default=0.1, help='Initial std for NoisyLinear layers in D3QN')
+    parser.add_argument('--d3qn_seq_len', type=int, default=8, help='Sequence length for LSTM in D3QN')
+    parser.add_argument('--d3qn_lstm_hidden', type=int, default=128, help='LSTM hidden size for D3QN')
+    parser.add_argument('--d3qn_num_atoms', type=int, default=51, help='Number of atoms for C51 distributional RL in D3QN')
+    parser.add_argument('--d3qn_v_min', type=float, default=-10.0, help='Minimum value of support for C51 in D3QN')
+    parser.add_argument('--d3qn_v_max', type=float, default=10.0, help='Maximum value of support for C51 in D3QN')
+
     # MODIFIED: Add new arguments for environment type and its parameters
     parser.add_argument('--env_type', type=str, default='original', choices=['original', 'extended'],
                         help='Type of environment to use (default: original)')
@@ -668,6 +700,19 @@ def main():
                         help='Lead time for EnvExtended (default: 2)')
     parser.add_argument('--history_length', type=int, default=3,
                         help='History length for EnvExtended (default: 3)')
+
+    # The D3QN specific arguments (noisy_std, seq_len, lstm_hidden, num_atoms, v_min, v_max)
+    # were already defined above. This second block is the duplicate.
+    # I am removing this duplicate block.
+    # parser.add_argument('--d3qn_noisy_std', type=float, default=0.1, help='Initial std for NoisyLinear layers in D3QN')
+    # parser.add_argument('--d3qn_seq_len', type=int, default=8, help='Sequence length for LSTM in D3QN')
+    # parser.add_argument('--d3qn_lstm_hidden', type=int, default=128, help='LSTM hidden size for D3QN')
+    # parser.add_argument('--d3qn_num_atoms', type=int, default=51, help='Number of atoms for C51 distributional RL in D3QN')
+    # parser.add_argument('--d3qn_v_min', type=float, default=-10.0, help='Minimum value of support for C51 in D3QN')
+    # parser.add_argument('--d3qn_v_max', type=float, default=10.0, help='Maximum value of support for C51 in D3QN')
+    # parser.add_argument('--d3qn_alpha_per', type=float, default=0.6, help='Alpha for PER in D3QN')
+    # parser.add_argument('--d3qn_beta_per_start', type=float, default=0.4, help='Beta start for PER in D3QN')
+
     args = parser.parse_args()
     
     # Initialize environment with parameters
@@ -733,7 +778,21 @@ def main():
             agent_kwargs = {
                 'learning_rate': args.d3qn_lr,
                 'tau': args.d3qn_tau,
-                'prioritized_replay': args.d3qn_prioritized
+                'gamma': args.d3qn_gamma,
+                'buffer_size': args.d3qn_buffer_size,
+                'batch_size': args.d3qn_batch_size,
+                'update_every': args.d3qn_update_every,
+                'prioritized_replay': args.d3qn_prioritized,
+                'alpha_per': args.d3qn_alpha_per,
+                'beta_per_start': args.d3qn_beta_per_start,
+                'beta_per_end': args.d3qn_beta_per_end,
+                'beta_per_frames': args.d3qn_beta_per_frames,
+                'noisy_std_init': args.d3qn_noisy_std,
+                'sequence_length': args.d3qn_seq_len,
+                'lstm_hidden_size': args.d3qn_lstm_hidden,
+                'num_atoms': args.d3qn_num_atoms,
+                'v_min': args.d3qn_v_min,
+                'v_max': args.d3qn_v_max,
             }
         
         # Train agent
@@ -768,7 +827,8 @@ def main():
     compare_strategies(
         env=env,
         target_firm_index=target_firm_index,
-        state_size=state_size, # MODIFIED: Pass state_size
+        state_size=state_size,
+        args=args, # MODIFIED: Pass args
         agent_types=args.agents,
         other_firm_strategy=args.other_strategy,
         num_episodes=100,
