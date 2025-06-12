@@ -280,7 +280,7 @@ class D3QNAgent:
         
         # Learn every update_every steps when enough samples are available
         if len(self.memory) > self.batch_size and self.step_count % self.update_every == 0:
-            experiences = self.memory.sample(self.batch_size, self.beta if self.prioritized_replay else 1.0)
+            experiences = self.memory.sample(self.batch_size)
             self.learn(experiences)
             
             # Decay epsilon
