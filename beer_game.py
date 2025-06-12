@@ -2,7 +2,7 @@ import torch
 import numpy as np
 import random
 import matplotlib.pyplot as plt
-from env import Env
+from env import Env, EnvExtended # MODIFIED: Import EnvExtended
 import os
 import argparse
 from dqn import DQNAgent
@@ -65,6 +65,7 @@ def train_agent(
     env,
     agent_index,
     other_strategies,
+    state_size, # MODIFIED: Added state_size parameter
     num_episodes=1000,
     max_steps=100,
     checkpoint_interval=100,
@@ -73,8 +74,8 @@ def train_agent(
     """Train a reinforcement learning agent for the specified firm"""
     
     # Initialize the agent based on the specified type
-    state_size = 3  # [order, satisfied_demand, inventory]
-    action_size = 20  # Max order quantity
+    # state_size = 3  # MODIFIED: Removed hardcoded state_size
+    action_size = 20  # Max order quantity (assuming this remains constant)
     
     if agent_type.lower() == "dqn":
         agent = DQNAgent(state_size, action_size, **agent_kwargs)
@@ -343,6 +344,7 @@ def evaluate_agent(
 def compare_strategies(
     env,
     target_firm_index,
+    state_size, # MODIFIED: Added state_size parameter
     agent_types=None,  # List of agent types to include in comparison
     other_firm_strategy="random",
     num_episodes=100,
@@ -356,13 +358,13 @@ def compare_strategies(
     # Define strategies to compare
     strategies = {
         "Random": RandomStrategy(),
-        "BaseStock": BaseStockStrategy(target_level=20),
-        "OrderUpTo": OrderUpToStrategy(threshold=10, target_level=20),
+        "BaseStock": BaseStockStrategy(target_level=20), # Assuming state[2] is still inventory for base Env
+        "OrderUpTo": OrderUpToStrategy(threshold=10, target_level=20), # Assuming state[2] is still inventory for base Env
     }
     
     # Try to load trained agents if available
-    state_size = 3  # [order, satisfied_demand, inventory]
-    action_size = 20
+    # state_size = 3  # MODIFIED: Removed hardcoded state_size
+    action_size = 20 # Max order quantity (assuming this remains constant)
     
     for agent_type in agent_types:
         try:
@@ -659,6 +661,13 @@ def main():
                       help='D3QN learning rate (default: 0.001)')
     parser.add_argument('--d3qn-prioritized', action='store_true',
                       help='Enable prioritized experience replay for D3QN')
+    # MODIFIED: Add new arguments for environment type and its parameters
+    parser.add_argument('--env_type', type=str, default='original', choices=['original', 'extended'],
+                        help='Type of environment to use (default: original)')
+    parser.add_argument('--lead_time', type=int, default=2,
+                        help='Lead time for EnvExtended (default: 2)')
+    parser.add_argument('--history_length', type=int, default=3,
+                        help='History length for EnvExtended (default: 3)')
     args = parser.parse_args()
     
     # Initialize environment with parameters
@@ -669,11 +678,22 @@ def main():
     initial_inventory = 100
     poisson_lambda = 10
     max_steps = args.steps
-    
-    env = Env(num_firms, p, h, c, initial_inventory, poisson_lambda, max_steps)
+
+    # MODIFIED: Environment Instantiation
+    if args.env_type == 'extended':
+        env = EnvExtended(num_firms, p, h, c, initial_inventory, poisson_lambda, max_steps,
+                          lead_time=args.lead_time, history_length=args.history_length)
+        print(f"Using Extended Environment with lead_time={args.lead_time}, history_length={args.history_length}")
+    else:
+        env = Env(num_firms, p, h, c, initial_inventory, poisson_lambda, max_steps)
+        print("Using Original Environment")
+
+    # MODIFIED: Dynamic state_size determination
+    state_size = env.state_size
+    print(f"Determined state_size: {state_size}")
     
     # Set maximum order quantity
-    max_order = 20
+    max_order = 20 # Assuming action space (max order) remains the same
     
     # Set target firm position (from command line argument)
     target_firm_index = args.firm
@@ -722,6 +742,7 @@ def main():
             env=env,
             agent_index=target_firm_index,
             other_strategies=other_strategies,
+            state_size=state_size, # MODIFIED: Pass state_size
             num_episodes=args.episodes,
             max_steps=max_steps,
             checkpoint_interval=100,
@@ -747,6 +768,7 @@ def main():
     compare_strategies(
         env=env,
         target_firm_index=target_firm_index,
+        state_size=state_size, # MODIFIED: Pass state_size
         agent_types=args.agents,
         other_firm_strategy=args.other_strategy,
         num_episodes=100,
