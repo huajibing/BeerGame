@@ -79,6 +79,9 @@ class DQNAgent:
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         self.policy_net.to(self.device)
         self.target_net.to(self.device)
+
+        # Q-losses list
+        self.q_losses = []
     
     def act(self, state, eval_mode=False):
         """Select an action using epsilon-greedy policy"""
@@ -140,6 +143,9 @@ class DQNAgent:
         loss.backward()
         self.optimizer.step()
         
+        # Record Q-loss
+        self.q_losses.append(loss.item())
+
         # Update target network
         if self.step_count % (self.update_every * 10) == 0:
             self.update_target()
@@ -147,3 +153,12 @@ class DQNAgent:
     def update_target(self):
         """Update target network with policy network weights"""
         self.target_net.load_state_dict(self.policy_net.state_dict())
+
+    def get_average_q_loss(self):
+        """Calculate and return the average Q-loss, then clear the list."""
+        if not self.q_losses:
+            return 0.0
+
+        avg_loss = np.mean(self.q_losses)
+        self.q_losses = []
+        return avg_loss

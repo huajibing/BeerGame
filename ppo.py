@@ -166,6 +166,10 @@ class PPOAgent:
         
         # 是否可以更新的标志
         self.ready_to_update = False
+
+        # 损失列表
+        self.policy_losses = []
+        self.value_losses = []
     
     def act(self, state, eval_mode=False):
         """使用策略网络选择动作"""
@@ -315,6 +319,10 @@ class PPOAgent:
                 # 梯度裁剪（保留，有助于稳定训练）
                 torch.nn.utils.clip_grad_norm_(self.network.parameters(), 0.5)
                 self.optimizer.step()
+
+                # 记录损失
+                self.policy_losses.append(policy_loss.item())
+                self.value_losses.append(value_loss.item())
         
         # 清空经验缓冲区
         self.states = []
@@ -349,3 +357,16 @@ class PPOAgent:
         returns = advantages + values
         
         return returns, advantages
+
+    def get_average_losses(self):
+        """计算并返回平均损失，然后清空损失列表"""
+        if not self.policy_losses or not self.value_losses:
+            return 0.0, 0.0
+
+        avg_policy_loss = np.mean(self.policy_losses)
+        avg_value_loss = np.mean(self.value_losses)
+
+        self.policy_losses = []
+        self.value_losses = []
+
+        return avg_policy_loss, avg_value_loss

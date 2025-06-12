@@ -251,6 +251,9 @@ class D3QNAgent:
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         self.policy_net.to(self.device)
         self.target_net.to(self.device)
+
+        # Q-losses list
+        self.q_losses = []
     
     def act(self, state, eval_mode=False):
         """Select an action using epsilon-greedy policy"""
@@ -336,6 +339,9 @@ class D3QNAgent:
         torch.nn.utils.clip_grad_norm_(self.policy_net.parameters(), 1.0)
         self.optimizer.step()
         
+        # Record Q-loss
+        self.q_losses.append(loss.item())
+
         # Soft update target network
         self.soft_update()
     
@@ -344,3 +350,11 @@ class D3QNAgent:
         for target_param, policy_param in zip(self.target_net.parameters(), self.policy_net.parameters()):
             target_param.data.copy_(self.tau * policy_param.data + (1.0 - self.tau) * target_param.data)
 
+    def get_average_q_loss(self):
+        """Calculate and return the average Q-loss, then clear the list."""
+        if not self.q_losses:
+            return 0.0
+
+        avg_loss = np.mean(self.q_losses)
+        self.q_losses = []
+        return avg_loss
